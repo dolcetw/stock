@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>股票資產監控器 - 雙帳號版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+        .card { background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        .input-group label { display: block; font-size: 0.875rem; font-weight: 500; color: #475569; margin-bottom: 0.25rem; }
+        input, select { border: 1px solid #cbd5e1; border-radius: 6px; padding: 0.5rem; width: 100%; focus: outline-none; focus: ring-2; focus: ring-blue-500; }
+        .btn-primary { background-color: #2563eb; color: white; transition: background 0.2s; }
+        .btn-primary:hover { background-color: #1d4ed8; }
+        .tab-btn { padding: 0.75rem 1.25rem; font-weight: 600; color: #64748b; border-bottom: 2px solid transparent; transition: all 0.2s; white-space: nowrap; }
+        .tab-btn.active { color: #2563eb; border-bottom: 2px solid #2563eb; }
+        .negative { color: #dc2626; }
+        .positive { color: #16a34a; }
+        .warning { color: #ea580c; background-color: #ffedd5; padding: 2px 6px; border-radius: 4px; }
+        .danger { color: #ffffff; background-color: #dc2626; padding: 2px 6px; border-radius: 4px; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-7xl mx-auto">
+        <header class="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center">
+            <div>
+                <h1 class="text-2xl font-bold text-slate-800">股票資產監控器 (雙帳號)</h1>
+                <p class="text-slate-500">獨立管理 兆豐 與 口袋 帳號部位 · 修復回補邏輯</p>
+            </div>
+            <div class="mt-4 md:mt-0 text-right">
+                <div id="statusMsg" class="text-sm text-blue-600 mb-2 font-medium h-5"></div>
+                <button onclick="clearAllData()" class="text-sm text-slate-400 hover:text-red-500 underline">清除所有帳號資料</button>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            <div class="lg:col-span-1">
+                <div class="card p-6 sticky top-8">
+                    <h2 class="text-lg font-semibold mb-4 border-b pb-2">新增交易紀錄</h2>
+                    <div class="space-y-4">
+                        <div class="input-group">
+                            <label>入帳帳號</label>
+                            <select id="tradeAccount">
+                                <option value="mega">兆豐</option>
+                                <option value="pocket">口袋</option>
+                            </select>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="input-group">
+                                <label>股票代號</label>
+                                <input type="text" id="stockSymbol" list="symbolList" placeholder="2330" oninput="handleSymbolInput(this.value)">
+                                <datalist id="symbolList"></datalist>
+                            </div>
+                            <div class="input-group">
+                                <label>股票名稱</label>
+                                <input type="text" id="stockName" list="nameList" placeholder="台積電" oninput="handleNameInput(this.value)">
+                                <datalist id="nameList"></datalist>
+                            </div>
+                        </div>
+                        <div class="input-group">
+                            <label>交易類型</label>
+                            <select id="tradeType">
+                                <option value="spot">現股 / 零股</option>
+                                <option value="margin">融資</option>
+                                <option value="short">融券</option>
+                            </select>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="input-group">
+                                <label>成交價格</label>
+                                <input type="number" id="tradePrice" step="0.01" placeholder="0.00">
+                            </div>
+                            <div class="input-group">
+                                <label>單位</label>
+                                <select id="tradeUnit">
+                                    <option value="1000">張</option>
+                                    <option value="1">股</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="input-group">
+                            <label>數量</label>
+                            <input type="number" id="tradeAmount" step="0.001" placeholder="數量">
+                        </div>
+                        <div class="grid grid-cols-2 gap-4 pt-2">
+                            <button onclick="addTrade('buy')" class="btn-primary py-2 rounded-lg font-bold">買入 / 補回</button>
+                            <button onclick="addTrade('sell')" class="bg-slate-200 text-slate-700 py-2 rounded-lg font-bold hover:bg-slate-300">賣出 / 券出</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-3 space-y-4">
+                <div class="flex border-b border-slate-200 overflow-x-auto">
+                    <button id="tabMega" onclick="switchTab('mega')" class="tab-btn active">兆豐持股</button>
+                    <button id="tabPocket" onclick="switchTab('pocket')" class="tab-btn">口袋持股</button>
+                    <button id="tabHistory" onclick="switchTab('history')" class="tab-btn">交易流水帳</button>
+                </div>
+
+                <div id="contentPositions" class="space-y-6">
+                    <div class="card p-6 overflow-x-auto">
+                        <h3 id="detailTitle" class="text-xs font-bold text-slate-400 mb-4 uppercase tracking-widest">部位明細</h3>
+                        <table class="w-full text-left text-sm mb-4">
+                            <thead>
+                                <tr class="text-slate-500 border-b">
+                                    <th class="py-2">標的</th>
+                                    <th class="py-2">類型</th>
+                                    <th class="py-2 text-right">張數</th>
+                                    <th class="py-2 text-right">單筆成本</th>
+                                    <th class="py-2 text-right">當前市價</th>
+                                    <th class="py-2 text-center">維持率</th>
+                                    <th class="py-2 text-right">損益</th>
+                                    <th class="py-2 text-right">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="portfolioBody"></tbody>
+                        </table>
+                        <div id="emptyState" class="text-center py-10 text-slate-400 hidden">暫無持股。</div>
+                    </div>
+
+                    <div class="card p-6 overflow-x-auto bg-blue-50/30 border-t-4 border-blue-500">
+                        <h3 id="summaryTitle" class="text-sm font-bold text-blue-700 mb-4 uppercase tracking-wider">標的彙整 (最後檢表)</h3>
+                        <table class="w-full text-left text-sm">
+                            <thead>
+                                <tr class="text-blue-900/50 border-b border-blue-100">
+                                    <th class="py-2">標的</th>
+                                    <th class="py-2 text-right">總持有張數</th>
+                                    <th class="py-2 text-right">綜合平均成本</th>
+                                    <th class="py-2 text-right">總市值</th>
+                                    <th class="py-2 text-center">維持率</th>
+                                    <th class="py-2 text-right">總計盈虧</th>
+                                </tr>
+                            </thead>
+                            <tbody id="summaryBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="contentHistory" class="card p-6 overflow-x-auto hidden">
+                    <table class="w-full text-left text-sm">
+                        <thead>
+                            <tr class="text-slate-500 border-b">
+                                <th class="py-2">日期</th>
+                                <th class="py-2">帳號</th>
+                                <th class="py-2">動作</th>
+                                <th class="py-2">標的</th>
+                                <th class="py-2 text-right">價格</th>
+                                <th class="py-2 text-right">數量</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historyBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 內建標的庫 (節錄)
+        const stockData = [
+            {s:"2330",n:"台積電"}, {s:"2317",n:"鴻海"}, {s:"2454",n:"聯發科"}, {s:"2303",n:"聯電"},
+            {s:"0050",n:"元大台灣50"}, {s:"0056",n:"元大高股息"}, {s:"00878",n:"國泰永續高股息"}
+        ];
+
+        let activePositions = []; 
+        let history = [];
+        let currentMarketPrices = {}; 
+        let userStocks = []; 
+        let currentTab = 'mega';
+
+        const MARGIN_RATIO = 0.6; 
+        const SHORT_MARGIN_RATIO = 0.9; 
+
+        function showStatus(msg) {
+            const el = document.getElementById('statusMsg');
+            if(el) { el.innerText = msg; setTimeout(() => { el.innerText = ''; }, 3000); }
+        }
+
+        function updateDatalists() {
+            const sList = document.getElementById('symbolList');
+            const nList = document.getElementById('nameList');
+            if(!sList || !nList) return;
+            sList.innerHTML = ''; nList.innerHTML = '';
+            const combined = [...stockData, ...userStocks];
+            const unique = Array.from(new Set(combined.map(a => a.s))).map(s => combined.find(a => a.s === s));
+            unique.forEach(item => {
+                sList.innerHTML += `<option value="${item.s}">${item.n}</option>`;
+                nList.innerHTML += `<option value="${item.n}">${item.s}</option>`;
+            });
+        }
+
+        function handleSymbolInput(val) {
+            const combined = [...stockData, ...userStocks];
+            const match = combined.find(i => i.s === val);
+            if (match) document.getElementById('stockName').value = match.n;
+        }
+
+        function handleNameInput(val) {
+            const combined = [...stockData, ...userStocks];
+            const match = combined.find(i => i.n === val);
+            if (match) document.getElementById('stockSymbol').value = match.s;
+        }
+
+        function switchTab(tabName) {
+            currentTab = tabName;
+            const isHistory = (tabName === 'history');
+            document.getElementById('contentPositions').classList.toggle('hidden', isHistory);
+            document.getElementById('contentHistory').classList.toggle('hidden', !isHistory);
+            document.getElementById('tabMega').classList.toggle('active', tabName === 'mega');
+            document.getElementById('tabPocket').classList.toggle('active', tabName === 'pocket');
+            document.getElementById('tabHistory').classList.toggle('active', tabName === 'history');
+            render();
+        }
+
+        function addTrade(action) {
+            const account = document.getElementById('tradeAccount').value;
+            const symbol = document.getElementById('stockSymbol').value.trim();
+            const name = document.getElementById('stockName').value.trim() || symbol;
+            const type = document.getElementById('tradeType').value;
+            const price = parseFloat(document.getElementById('tradePrice').value);
+            const rawAmount = parseFloat(document.getElementById('tradeAmount').value);
+            const unitMultiplier = parseFloat(document.getElementById('tradeUnit').value);
+
+            if (!symbol || isNaN(price) || isNaN(rawAmount) || rawAmount <= 0) {
+                showStatus("⚠️ 請檢查輸入資料");
+                return;
+            }
+
+            const sharesAsLots = (rawAmount * unitMultiplier) / 1000;
+            if (!currentMarketPrices[symbol]) currentMarketPrices[symbol] = price;
+
+            // 修正買賣邏輯
+            const isAdding = (type === 'short') ? (action === 'sell') : (action === 'buy');
+
+            if (isAdding) {
+                activePositions.push({
+                    id: Date.now(),
+                    account, symbol, name, type,
+                    shares: sharesAsLots,
+                    cost: price,
+                    loan: (type === 'margin') ? (price * sharesAsLots * 1000 * MARGIN_RATIO) : 0,
+                    collateral: (type === 'short') ? (price * sharesAsLots * 1000) : 0,
+                    marginMoney: (type === 'short') ? (price * sharesAsLots * 1000 * SHORT_MARGIN_RATIO) : 0
+                });
+                showStatus("✅ 已存入部位");
+            } else {
+                let remaining = sharesAsLots;
+                activePositions = activePositions.filter(p => {
+                    if (p.account === account && p.symbol === symbol && p.type === type && remaining > 0) {
+                        if (p.shares <= remaining) { remaining -= p.shares; return false; }
+                        else {
+                            const ratio = (p.shares - remaining) / p.shares;
+                            p.shares -= remaining; p.loan *= ratio; p.collateral *= ratio; p.marginMoney *= ratio;
+                            remaining = 0; return true;
+                        }
+                    }
+                    return true;
+                });
+                showStatus("📉 已扣除部位");
+            }
+
+            history.unshift({
+                time: new Date().toISOString().slice(0,10).replace(/-/g,''),
+                account: (account === 'mega' ? '兆豐' : '口袋'),
+                action: (action === 'buy' ? (type==='short'?'補回':'買入') : (type==='short'?'券出':'賣出')),
+                symbol: `${symbol} ${name}`,
+                price, amount: `${rawAmount}${unitMultiplier === 1000 ? '張' : '股'}`
+            });
+
+            render();
+        }
+
+        function updatePrice(symbol, val) {
+            currentMarketPrices[symbol] = parseFloat(val);
+            render();
+        }
+
+        function render() {
+            const body = document.getElementById('portfolioBody');
+            const summaryBody = document.getElementById('summaryBody');
+            const historyBody = document.getElementById('historyBody');
+            
+            body.innerHTML = ''; summaryBody.innerHTML = ''; historyBody.innerHTML = '';
+
+            if (currentTab === 'history') {
+                history.forEach(h => {
+                    historyBody.innerHTML += `<tr class="border-b text-xs"><td class="py-2">${h.time}</td><td class="py-2">${h.account}</td><td class="py-2">${h.action}</td><td class="py-2">${h.symbol}</td><td class="py-2 text-right font-mono">${h.price.toFixed(2)}</td><td class="py-2 text-right">${h.amount}</td></tr>`;
+                });
+                return;
+            }
+
+            const accPos = activePositions.filter(p => p.account === currentTab);
+            accPos.forEach(p => {
+                const mkt = currentMarketPrices[p.symbol] || p.cost;
+                let maint = "-", profit = 0;
+                if (p.type !== 'short') {
+                    profit = (mkt - p.cost) * p.shares * 1000;
+                    if(p.type === 'margin') maint = ((mkt * p.shares * 1000) / p.loan * 100).toFixed(2) + '%';
+                } else {
+                    profit = (p.cost - mkt) * p.shares * 1000;
+                    maint = ((p.collateral + p.marginMoney) / (mkt * p.shares * 1000) * 100).toFixed(2) + '%';
+                }
+                appendRow(body, p, mkt, maint, profit);
+            });
+
+            const aggr = {};
+            accPos.forEach(p => {
+                const key = `${p.symbol}_${p.type==='short'?'S':'L'}`;
+                if(!aggr[key]) aggr[key] = {s:p.symbol, n:p.name, t:p.type, sh:0, c:0, m:0, l:0, co:0, mm:0, p:0};
+                const mkt = currentMarketPrices[p.symbol] || p.cost;
+                aggr[key].sh += p.shares; aggr[key].c += p.cost * p.shares * 1000;
+                aggr[key].m += mkt * p.shares * 1000; aggr[key].l += p.loan;
+                aggr[key].co += p.collateral; aggr[key].mm += p.marginMoney;
+                aggr[key].p += (p.type==='short') ? (p.cost - mkt)*p.shares*1000 : (mkt - p.cost)*p.shares*1000;
+            });
+
+            for(let k in aggr) {
+                const a = aggr[k];
+                const avg = a.c / (a.sh * 1000);
+                let mt = "-";
+                if(a.t === 'margin') mt = (a.m/a.l*100).toFixed(2)+'%';
+                if(a.t === 'short') mt = ((a.co+a.mm)/a.m*100).toFixed(2)+'%';
+                summaryBody.innerHTML += `<tr class="border-b font-medium"><td class="py-3">${a.s} ${a.n}</td><td class="py-3 text-right">${a.sh.toFixed(3)}</td><td class="py-3 text-right">${avg.toFixed(2)}</td><td class="py-3 text-right">${Math.round(a.m).toLocaleString()}</td><td class="py-3 text-center text-xs">${mt}</td><td class="py-3 text-right ${a.p>=0?'positive':'negative'}">${Math.round(a.p).toLocaleString()}</td></tr>`;
+            }
+
+            document.getElementById('emptyState').classList.toggle('hidden', accPos.length > 0);
+            saveToLocal();
+        }
+
+        function appendRow(parent, p, mkt, maint, profit) {
+            const tr = document.createElement('tr');
+            tr.className = "border-b text-xs";
+            tr.innerHTML = `<td class="py-3">${p.symbol}<br>${p.name}</td><td>${p.type}</td><td class="text-right">${p.shares.toFixed(3)}</td><td class="text-right">${p.cost.toFixed(2)}</td><td class="text-right"><input type="number" step="0.1" class="w-16 p-1 border rounded text-right font-mono" value="${mkt}" onchange="updatePrice('${p.symbol}',this.value)"></td><td class="text-center">${maint}</td><td class="text-right ${profit>=0?'positive':'negative'}">${Math.round(profit).toLocaleString()}</td><td class="text-right"><button onclick="deleteLot(${p.id})" class="text-red-300 hover:text-red-500">刪</button></td>`;
+            parent.appendChild(tr);
+        }
+
+        function deleteLot(id) { activePositions = activePositions.filter(p => p.id !== id); render(); }
+
+        function clearAllData() { if(confirm('清除所有資料？')) { activePositions=[]; history=[]; localStorage.clear(); location.reload(); } }
+
+        function saveToLocal() {
+            try {
+                localStorage.setItem('stock_v12_pos', JSON.stringify(activePositions));
+                localStorage.setItem('stock_v12_hist', JSON.stringify(history));
+                localStorage.setItem('stock_v12_prices', JSON.stringify(currentMarketPrices));
+                localStorage.setItem('user_stocks_v12', JSON.stringify(userStocks));
+            } catch(e) { console.error("儲存失敗", e); }
+        }
+
+        function loadFromLocal() {
+            try {
+                const pos = localStorage.getItem('stock_v12_pos');
+                const hist = localStorage.getItem('stock_v12_hist');
+                const pr = localStorage.getItem('stock_v12_prices');
+                const us = localStorage.getItem('user_stocks_v12');
+                if (pos) activePositions = JSON.parse(pos);
+                if (hist) history = JSON.parse(hist);
+                if (pr) currentMarketPrices = JSON.parse(pr);
+                if (us) userStocks = JSON.parse(us);
+                updateDatalists(); render();
+            } catch(e) {
+                console.error("讀取失敗，可能是舊資料格式衝突", e);
+                showStatus("⚠️ 偵測到舊資料衝突，已重置");
+            }
+        }
+        window.onload = loadFromLocal;
+    </script>
+</body>
+</html>
