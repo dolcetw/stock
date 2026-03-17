@@ -157,10 +157,9 @@
     </div>
 
     <script>
-        // 內建標的庫 (節錄)
         const stockData = [
             {s:"2330",n:"台積電"}, {s:"2317",n:"鴻海"}, {s:"2454",n:"聯發科"}, {s:"2303",n:"聯電"},
-            {s:"0050",n:"元大台灣50"}, {s:"0056",n:"元大高股息"}, {s:"00878",n:"國泰永續高股息"}
+            {s:"0050",n:"元大台灣50"}, {s:"0056",n:"元大高股息"}, {s:"00878",n:"國泰永續高股息"}, {s:"2409",n:"友達"}
         ];
 
         let activePositions = []; 
@@ -227,10 +226,19 @@
                 return;
             }
 
+            const combined = [...stockData, ...userStocks];
+            if (!combined.find(i => i.s === symbol)) {
+                userStocks.push({ s: symbol, n: name });
+                localStorage.setItem('user_stocks_v12', JSON.stringify(userStocks));
+                updateDatalists();
+            }
+
             const sharesAsLots = (rawAmount * unitMultiplier) / 1000;
             if (!currentMarketPrices[symbol]) currentMarketPrices[symbol] = price;
 
-            // 修正買賣邏輯
+            // 核心回補邏輯修復：
+            // 現股/融資：買入(buy) = 增加部位
+            // 融券：賣出(sell) = 增加部位 (放空)
             const isAdding = (type === 'short') ? (action === 'sell') : (action === 'buy');
 
             if (isAdding) {
@@ -285,7 +293,7 @@
 
             if (currentTab === 'history') {
                 history.forEach(h => {
-                    historyBody.innerHTML += `<tr class="border-b text-xs"><td class="py-2">${h.time}</td><td class="py-2">${h.account}</td><td class="py-2">${h.action}</td><td class="py-2">${h.symbol}</td><td class="py-2 text-right font-mono">${h.price.toFixed(2)}</td><td class="py-2 text-right">${h.amount}</td></tr>`;
+                    historyBody.innerHTML += `<tr class="border-b text-xs"><td class="py-2">${h.time}</td><td class="py-2">${h.account}</td><td class="py-2 font-bold">${h.action}</td><td class="py-2">${h.symbol}</td><td class="py-2 text-right font-mono">${h.price.toFixed(2)}</td><td class="py-2 text-right">${h.amount}</td></tr>`;
                 });
                 return;
             }
@@ -360,7 +368,7 @@
                 if (us) userStocks = JSON.parse(us);
                 updateDatalists(); render();
             } catch(e) {
-                console.error("讀取失敗，可能是舊資料格式衝突", e);
+                console.error("讀取失敗", e);
                 showStatus("⚠️ 偵測到舊資料衝突，已重置");
             }
         }
